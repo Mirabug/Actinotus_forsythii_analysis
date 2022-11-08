@@ -1,0 +1,285 @@
+---
+title: "fors_analysis"
+output: html_document
+date: "2022-11-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(RRtools)
+library(devtools)
+library(LEA)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(diveRsity)
+library(tidyverse)
+library(dplyr)
+library(tibble)
+library(RColorBrewer)
+library(reshape2)
+library(popkin)
+library(SNPRelate)
+source("funx.R")
+```
+
+
+```{r}
+library(adegenet)
+library(poppr)
+library(reshape2)
+library(ggsn)
+library(sf)
+library(raster)
+library(rgeos)
+library(maps)
+library(maptools)
+library(grid)
+library(miscTools)
+library(stringr)
+library(ggpubr)
+library(readr)
+library(ggmap)
+```
+
+
+
+```{r}
+species   <- "ActiFors"
+dataset   <- "DAct22-7189"
+dataset_   <- "DAct22-7322"
+
+RandR_raw <- "/Users/jorda/OneDrive/Documents/Actinotus_forsythii_analysis/raw/"
+basedir   <- "/Users/jorda/OneDrive/Documents/Actinotus_forsythii_analysis/beta code/"
+
+ActiFors_meta <- read_csv("ActiFors/meta/ActiFors_DAct22-7189_meta.v0002.csv")
+
+```
+
+
+```{r}
+d1        <- read_dart_onerow_csv(RandR_raw,species,dataset_, seq2fa=FALSE, fnum=2)
+qc1       <- report_dart_qc_stats(d1, basedir, species, dataset, threshold_missing_loci = 0.8)
+
+
+d2        <- remove.poor.quality.snps(d1, min_repro=0.96, max_missing=0.2)
+qc2       <- report_dart_qc_stats(d2, basedir, species, dataset_)
+
+d3        <- sample.one.snp.per.locus.random(d2, seed=12345) 
+qc3       <- report_dart_qc_stats(d3, basedir, species, dataset_)
+
+
+v         <- "v0002"
+m1        <- read_meta_info(d1, basedir, species, dataset, version=v)
+
+dm        <- merge_gt_meta_data(d1, m1)
+
+setdiff( d1$sample_names, m1$sample_names)
+
+dmv       <- arrange_data_by_analysis_field(dm, "micro", basedir, species, dataset_)
+
+dmv2        <- remove.poor.quality.snps(dmv, min_repro=0.96, max_missing=0.1)
+qmv2       <- report_dart_qc_stats(dmv2, basedir, species, dataset_)
+
+dmv3        <- sample.one.snp.per.locus.random(dmv2, seed=12345) 
+qmv3       <- report_dart_qc_stats(dmv3, basedir, species, dataset_)
+
+
+identical(rownames(dmv3$gt), dmv3$sample_names)
+
+```
+
+
+#re-order
+
+```{r}
+# dmv4 <- dmv3 orders by dmv3$meta$lat
+
+meta_arr <- cbind(dmv3$sample_names, dmv3$meta$lat, dmv3$meta$analyses$micro)
+meta_arr <- as.data.frame(meta_arr)
+names(meta_arr)[1] <- 'sample'
+names(meta_arr)[2] <- 'lat'
+names(meta_arr)[3] <- 'micro'
+meta_arr <- group_by(meta_arr, micro)
+meta_arr <- arrange(meta_arr, lat, .by_group = FALSE)
+
+dmv4 = dmv3
+#sort the key matrix
+dmv4$gt=dmv3$gt[as.vector(meta_arr$sample), ]
+
+#sort sample names at top level
+dmv4$sample_names<-as.vector(meta_arr$sample)
+dma<-data.frame(dmv4$meta$analyses)
+
+#move to modern data system
+all<-data.frame(dma,lat=dmv4$meta$lat,long=dmv4$meta$long,sample_names=dmv4$meta$sample_names,site=dmv4$meta$site)
+
+#sort based on your vector from above using modern tools
+all %>%
+  slice(match(as.vector(meta_arr$sample), sample_names))->all_sorted
+
+all(all_sorted$sample_names == as.vector(meta_arr$sample)) # check sorting
+
+#back to old system, this could be rationalized but I don't want to break anything downstream
+
+dmv4$meta<-as.list(all_sorted[,10:13])
+
+dmv4$meta$analyses <-as.list(as.list(all_sorted[,1:9]))
+
+```
+
+# running snmf, pca, kin and Fst
+```{r}
+# run a pca
+gl_file    <- dart2gl(dmv4, basedir, species, dataset_, return_as_file=TRUE)
+run_PCA(gl_file, basedir, species, dataset_, dmv4$treatment)
+#run with micro
+
+gl_pca$eig[1]/sum(gl_pca$eig)
+```
+
+```{r}
+# run sNMF
+lea_file <- dart2lea(dmv4, basedir, species, dataset_)
+run_SNMF(lea_file, basedir, species, dataset_, dmv4$treatment)
+plot_SNMF(basedir, species, dataset_, dmv4$treatment)
+
+# Run with 'micro'
+#if you want to re-run snmf with different number of samples, delete or move old lea file
+```
+
+```{r}
+# run kin
+iIBD      <- individual.pw.IBD(dmv4,basedir,species,dataset)
+kin       <-  iIBD$kinship
+
+rownames(kin) <- rownames(dmv3$gt)
+colnames(kin) <- rownames(dmv3$gt)
+
+image(kin)
+
+plot(kin, pk_f4)
+
+```
+
+```{r}
+# run allelic richness and Fis
+
+gp_fil <- dart2genepop(dmv4,basedir,species,dataset_, pop=dmv4$meta$analyses$S,maf_val=0.1)
+gp_out <- run_diveRsity(gp_fil)
+
+```
+
+```{r}
+# run site pwFst and populatin Fst
+pwFst <- population.pw.Fst(dmv4,dmv4$meta$analyses$S ,basedir,species,dataset_,maf_val = 0.1, miss_val = 0.1)
+
+ppwfst <- as.data.frame(pwFst$Fst)
+ppwfst <- rownames_to_column(ppwfst, "S")
+ppwfst_long <- pivot_longer(ppwfst, -c(S), names_to = "sites", values_to = "counts")
+ppwfst_long$S <- factor(ppwfst_long$S, levels = ppwfst$S)
+ppwfst_long$sites <- factor(ppwfst_long$sites, levels = ppwfst$S)
+ppwfst_long <- ppwfst_long %>% mutate_if(is.numeric, round, digits=2)
+
+ggfst <- ggplot(ppwfst_long, aes(x=sites, y=S, fill=counts)) + 
+  geom_tile() +
+  scale_fill_gradient(low="red", high="white") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_text(aes(sites, S, label = counts), color = "black", size = 3) 
+ ggfst 
+ggsave("sites_fst.jpg", width = 8, height = 7, dpi = 300)
+
+
+fis_ar <- read_csv("/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiFors/popgen/raw_Fmicro_SNPFilt_1SNPperClone/genepop/ActiFors_DAct22-7322.csv")
+
+
+fis_ar_ <- dplyr::select(fis_ar, S, ar, fis)
+ppwfst_fis <- merge(ppwfst, fis_ar_, by= "S", sort=FALSE)
+fis_ar_sort <- dplyr::select(ppwfst_fis, S, ar, fis)
+fis_ar_long <- melt(fis_ar_sort, id.vars = "S")
+fis_ar_long$S <- factor(fis_ar_long$S, levels = ppwfst_fis$S)
+
+ggfis <- ggplot(fis_ar_long, aes(x=variable, y=S, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient(low="blue", high="white") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_text(aes(variable, S, label = value), color = "black", size = 3)
+ggfis
+
+
+Sn <- dplyr::select(fis_ar, S)
+Sn$n <- c(11, 6, 14, 20, 20, 4, 7, 7, 7)
+Sn_long <- melt(Sn)
+Sn_long$S <- factor(Sn_long$S, levels = ppwfst_fis$S)
+
+ggsn <- ggplot(Sn_long, aes(x=variable, y=S, fill=value)) + 
+  geom_tile() +
+  scale_fill_gradient(low="white", high="light grey") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_text(aes(variable, S, label = value), color = "black", size = 3)
+
+ggarrange(ggfst, ggfis, ggsn)
+```
+
+#fst
+```{r}
+ppwfst_sum <- colSums(ppwfst[,-1])
+view(ppwfst_sum)
+
+dart_data <- dmv4
+meta <- dmv4$meta
+   p    <- dmv4$meta$analyses$S
+   pop_info <- get.population.info(meta, p, method="average")
+   gds_file <- dart2gds(dart_data, basedir, species, dataset_)
+   gds      <- snpgdsOpen(gds_file)
+
+ fst      <- snpgdsFst(gds, population=as.factor(p), method="W&H02", sample.id=dart_data$sample_names, maf=0.1, missing.rate=0.1, with.id=TRUE)
+ #0.33
+ #0.364 (with new samples)
+ #0.30 with removed narrow neck
+```
+
+# Plotting PCA
+```{r}
+load("C:/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiFors/popgen/raw_Fmicro_SNPFilt_1SNPperClone/genlight/ActiFors_DAct22-7322_PCA.rda")
+
+pc1_pc2 <- cbind(gl_pca$scores[,1], gl_pca$scores[,2])
+
+
+write.csv(pc1_pc2, "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiFors/popgen/raw_Fmicro_SNPFilt_1SNPperClone/genlight\\pc1_pc2.csv", row.name = TRUE)
+```
+
+
+```{r}
+pc1_pc2 <- read_csv("/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiFors/popgen/raw_Fmicro_SNPFilt_1SNPperClone/genlight/pc1_pc2.csv")
+
+
+names(pc1_pc2)[1]<-paste("sample")
+names(pc1_pc2)[2]<-paste("PC1")
+names(pc1_pc2)[3]<-paste("PC2") 
+
+PCA_data <- merge(pc1_pc2, ActiFors_meta, by= "sample")
+
+
+gl_pca$eig[2]/sum(gl_pca$eig)
+
+PCA_data$S <- factor(PCA_data$S, levels =c("Newnes State Park", "Lithgow", "Ikara", "Narrow Neck", "Kanangra", "Bundanoon", "Sassafrass", "Braidwood Rd West", "Braidwood Rd East"))
+pca_fors <- ggplot(PCA_data, aes(x=PC1, y=PC2, shape= S, colour=S, fill= S)) +
+  geom_hline(yintercept=0, color="grey") + geom_vline(xintercept = 0, color="grey") +
+  geom_point(size=3) +
+  scale_shape_manual(values=c( 17, 17, 17, 17, 18, 15, 15, 15, 15)) +
+  scale_color_manual(values=c('#A1DAB4', '#41B6C4','#2C7FB8', '#253494','#A1DAB4','#A1DAB4', '#41B6C4', '#2C7FB8', '#253494')) +
+   theme_bw() + theme(legend.title=element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  labs(x="PC1 (8.9%)", y="PC2 (7.5%)"
+  )
+pca_fors
+#ggsave("PCA_fors.png",width = 8, height = 5, dpi=300)
+#final taken
+```

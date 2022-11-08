@@ -1,0 +1,12 @@
+Tue Nov  1 17:57:57 2022
+Species: ActiHeli
+Name: DAct19-4163
+Number of SNPs: 25032
+Number of clones: 25032
+Number of samples: 218
+
+
+Samples missing data for  0.5  of loci
+None
+
+

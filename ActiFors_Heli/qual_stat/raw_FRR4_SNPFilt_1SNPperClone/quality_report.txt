@@ -1,0 +1,12 @@
+Tue Nov  1 14:13:05 2022
+Species: ActiFors_Heli
+Name: DAct22-7322_4
+Number of SNPs: 403
+Number of clones: 403
+Number of samples: 36
+
+
+Samples missing data for  0.5  of loci
+None
+
+

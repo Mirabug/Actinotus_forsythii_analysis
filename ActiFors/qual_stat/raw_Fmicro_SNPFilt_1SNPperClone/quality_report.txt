@@ -1,0 +1,12 @@
+Tue Nov  8 14:43:33 2022
+Species: ActiFors
+Name: DAct22-7322
+Number of SNPs: 12526
+Number of clones: 12526
+Number of samples: 88
+
+
+Samples missing data for  0.5  of loci
+None
+
+
