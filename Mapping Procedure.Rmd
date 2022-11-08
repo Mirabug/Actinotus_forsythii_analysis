@@ -1,0 +1,137 @@
+---
+title: "Mapping Procedure"
+output: html_document
+date: '2022-07-20'
+---
+
+
+
+
+```{r}
+library(readr)
+library(ggplot2)
+library(ggmap)
+
+# sample locations - This has to be a file with lat/long and site names but also can have other feature information. I just use the meta file from  the RnR workflow
+sl <- read_csv("YourData.csv")
+
+
+# change map location with bbox = 
+# change quality of basemap by zoom =
+# change type of map with maptype = (terrain will give you location labels, terrain-background will not)
+
+basemap <- get_stamenmap(bbox = c(left = 149.5, bottom = -35.9, right = 151.5, top = -32.5), 
+                         zoom = 7, 
+                         maptype = 'terrain-background')
+```
+
+
+Basic map
+```{r}
+ggmap(basemap) + 
+  geom_point(aes(x = long, y = lat), data = sl, color="black", size = 1.5)
+```
+
+
+Interactive Maps for exploring the data
+```{r}
+library(leaflet)
+
+map <- leaflet(data = sl) %>% 
+  addProviderTiles(providers$Stamen.Terrain) 
+
+
+map %>%
+  addMarkers(~long, ~lat, popup = ~as.character(site), label = ~as.character(site))
+
+# and obvioulsy you can have fun with the icons. 
+map %>% 
+  addMarkers(data = sl, ~long, ~lat,
+  icon = list(
+    iconUrl = 'https://icons.iconarchive.com/icons/fatcow/farm-fresh/32/Plant-icon.png',
+    iconSize = c(20, 20)
+   ))
+
+```
+
+
+Along with elevation this adds australian river data
+```{r}
+library(sf)
+library(dplyr)
+
+
+# get rivers from https://data.review.fao.org/map/catalog/srv/api/records/6a53d768-1e20-46ea-92a8-c4040286057d
+rr<-st_read("rivers_australia_37252/rivers_australia_37252.shp")
+            
+# Rivers map bounding box (same as the bbox)
+box = c(xmin = 149.5, ymin = -35.9, xmax = 151.5, ymax = -32.5)
+bb <- st_crop(rr,box)
+
+
+#get xy from ggmap object
+xs<-seq(from=as.numeric(attr(basemap,"bb")[2]),
+    to=as.numeric(attr(basemap,"bb")[4]),length.out=ncol(basemap))
+ys<-seq(from=as.numeric(attr(basemap,"bb")[1]),
+        to=as.numeric(attr(basemap,"bb")[3]),length.out=nrow(basemap))
+df<-data.frame(expand.grid(x=xs,y=ys))
+df<-arrange(df,desc(y),x)
+
+#get colors
+df$val=as.vector(basemap)
+#set up colors for ggplot system
+df$val<-factor(df$val,levels=unique(df$val))
+
+#this plot will take a while to load, especially if the zoom is heigh. 
+ggplot() +
+  geom_raster(data=df,aes(x=x,y=y,fill=val))+
+  scale_fill_manual(values=levels(df$val)) +
+  theme_bw() +
+  scale_x_continuous("", expand = c(0, 0)) +
+  scale_y_continuous("", expand = c(0, 0)) +
+  theme(legend.position="none") +
+  geom_sf(data=bb, alpha=0.5, color="#56B4E9") +
+  geom_point(aes(x = long, y = lat), data = sl, color="black", size = 1.5, shape=17) +
+  ggspatial::annotation_scale(location = "br", bar_cols = c("grey", "white"), style = "ticks")
+# ggsave("map.jpg")
+```
+
+
+
+Plotting a reference map
+```{r}
+library(maps)
+
+world <- map_data("world")
+
+# Subsetting so its just mainland and tas
+australia <- subset(world, region=="Australia")%>%
+  subset(group == "177" | group == "143")
+
+ggplot() +
+  geom_map(
+    data = australia, map = australia,
+    aes(long, lat, map_id = region),
+    color = "grey", fill = "white", size = 0.1
+    ) +
+ coord_quickmap() +
+   theme_bw() +
+geom_point(aes(x = long, y = lat), data = sl, color="black", size = 1.5, shape=17)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

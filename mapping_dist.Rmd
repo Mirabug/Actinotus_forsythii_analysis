@@ -1,0 +1,113 @@
+---
+title: "mapping_dist"
+output: html_document
+date: "2022-11-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(leaflet)
+library(maps)
+library(RColorBrewer)
+library(ggtext)
+library(ggrepel)
+library(ggplot2)
+library(dplyr)
+
+
+library(mapview)
+library(rnaturalearth)
+library(ggmap)
+library(raster)
+```
+
+
+
+```{r}
+
+cities <- data.frame (city = c("Sydney", "Coffs Harbour", "Katoomba", "Canberra", "Newcastle", "Dubbo", "Tamworth", "Port Macquarie"),
+                      lat = c("-33.8651", "-30.2963", "-33.7151", "-35.3048", "-32.9167", "-32.2569", "-31.0833", "-31.4333"),
+                      long = c("151.2099", "153.1141", "150.3127", "149.1213", "151.7500", "148.6011", "150.9167", "152.9000"))
+cities$lat <- as.numeric (cities$lat)
+cities$long <- as.numeric (cities$long)
+
+h <- cbind(dmv3_h$meta$lat, dmv3_h$meta$long, dmv3_h$meta$analyses$S)
+h_df <- as.data.frame(h)
+names(h_df)[1]<-paste("lat")
+names(h_df)[2]<-paste("long")
+names(h_df)[3]<-paste("S")
+h_df <- transform(h_df, lat = as.numeric(lat), long = as.numeric(long))
+h_av <- h_df %>% group_by(S) %>% summarise_all(mean)
+
+f <- cbind(dmv4$meta$lat, dmv4$meta$long, dmv4$meta$analyses$S)
+f_df <- as.data.frame(f)
+names(f_df)[1]<-paste("lat")
+names(f_df)[2]<-paste("long")
+names(f_df)[3]<-paste("S")
+f_df <- transform(f_df, lat = as.numeric(lat), long = as.numeric(long))
+f_av <- f_df %>% group_by(S) %>% summarise_all(mean)
+
+
+f_ll<- dplyr::select(f_av, c('lat','long'))
+f_ll$lat <- as.numeric(f_ll$lat)
+f_ll$long <- as.numeric(f_ll$long)
+
+
+cat <- c("Sassafrass", "Braidwood Rd East")
+
+
+
+
+basemap <- get_stamenmap(bbox = c(left = 147.5, bottom = -38, 
+                                  right = 154, top = -28), zoom = 8, maptype = 'terrain-background')
+
+
+#get xy from ggmap object
+xs<-seq(from=as.numeric(attr(basemap,"bb")[2]),
+    to=as.numeric(attr(basemap,"bb")[4]),length.out=ncol(basemap))
+ys<-seq(from=as.numeric(attr(basemap,"bb")[1]),
+        to=as.numeric(attr(basemap,"bb")[3]),length.out=nrow(basemap))
+df<-data.frame(expand.grid(x=xs,y=ys))
+df<-arrange(df,desc(y),x)
+#get colors
+df$val=as.vector(basemap)
+#set up colors for ggplot system
+df$val<-factor(df$val,levels=unique(df$val))
+
+
+basemap = ggplot() +
+  geom_raster(data=df,aes(x=x,y=y,fill=val), alpha = 0.6)+
+  scale_fill_manual(values=levels(df$val)) +
+  theme_bw() +
+  coord_quickmap() +
+  scale_x_continuous("", expand = c(0, 0)) +
+  scale_y_continuous("", expand = c(0, 0)) +
+  theme(legend.position="none") +
+  geom_text(aes(x = long, y = lat, label = city), data = cities, color = "grey50", size = 3,) +
+   geom_point(aes(x = long, y = lat), data = h_av, color = "#525252", size = 3, stroke=1.2, shape=1) +
+  geom_point(aes(x = long, y = lat), data = f_av, color = "black", size = 4, shape=17) +
+      geom_text_repel(aes(x = long, y = lat, label = S, fontface="bold.italic"), data = subset(f_av, !(f_av$S %in% cat)), color = "black", size = 4, force_pull = 0, force = 0.5,              nudge_x = -1, direction = "y", hjust = 0.7,  segment.size  = 0.4, segment.color = "#525252", segment.linetype = 2) +
+    geom_text_repel(aes(x = long, y = lat, label = S, fontface="bold.italic"), data = f_av[f_av$S %in% cat,], color = "black", size = 4, force_pull = 0, force = 0.5, nudge_x = 1,           direction = "y", hjust = 0.3,  segment.size  = 0.4, segment.color = "#525252", segment.linetype = 2
+     )
+ 
+basemap
+
+
+
+
+# geom_point(aes(x = long, y = lat), data = h_av, fill="#E08214", color = "black", size = 2, shape=24) +
+ # geom_point(aes(x = long, y = lat), data = f_av, fill="#41B6C4", color = "black", size = 2, shape=24) +
+
+
+
+
+ggsave("map_draft_.png",  width = 6.5, height = 11, dpi=300)
+
+# subset(f_av, S !=c("Sassafrass", "Braidwood Rd East"))
+
+#ggspatial::annotation_scale(location = "br", bar_cols = c("grey", "white"), style = "ticks") +
+#scalebar(f_av, dist=100, dist_unit = "km", transform = TRUE, model = "WGS84") +
+```

@@ -1,0 +1,121 @@
+---
+title: "phylo"
+output: html_document
+date: "2022-11-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+species_fh   <- "ActiFors_Heli"
+dataset_fh   <- "DAct22-7322_4"
+
+
+RandR_raw_fh <- "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/raw/"
+basedir_fh   <- "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/"
+
+
+d1_fh        <- read_dart_onerow_csv(RandR_raw_fh, species_fh,dataset_fh, seq2fa=FALSE, fnum=2)
+qc1_fh      <- report_dart_qc_stats(d1_fh, basedir_fh, species_fh, dataset_fh, threshold_missing_loci = 0.8)
+
+
+d2_fh       <- remove.poor.quality.snps(d1_fh, min_repro=0.96, max_missing=0.2)
+qc2_fh       <- report_dart_qc_stats(d2_fh, basedir_fh, species_fh, dataset_fh)
+
+d3_fh        <- sample.one.snp.per.locus.random(d2_fh, seed=12345) 
+qc3_fh       <- report_dart_qc_stats(d3_fh, basedir_fh, species_fh, dataset_fh)
+
+
+### use meta data file to exclude some samples
+### that had lots of missing data
+
+v_fh         <- "v0002"
+m1_fh        <- read_meta_info(d1_fh, basedir_fh, species_fh, dataset_fh, version=v_fh)
+
+dm_fh        <- merge_gt_meta_data(d1_fh, m1_fh)
+
+dmv_fh       <- arrange_data_by_analysis_field(dm_fh, "RR4", basedir_fh, species_fh, dataset_fh)
+
+dmv2_fh        <- remove.poor.quality.snps(dmv_fh, min_repro=0.96, max_missing=0.1)
+qmv2_fh       <- report_dart_qc_stats(dmv2_fh, basedir_fh, species_fh, dataset_fh)
+
+dmv3_fh        <- sample.one.snp.per.locus.random(dmv2_fh, seed=12345) 
+qmv3_fh       <- report_dart_qc_stats(dmv3_fh, basedir_fh, species_fh, dataset_fh)
+```
+
+
+```{r}
+identical(rownames(dmv3_fh$gt), dmv3_fh$sample_names)
+```
+```{r}
+length(which(is.na(dmv3_fh$gt["NSW1016537", ])))
+length(which(is.na(dmv3_fh$gt["NSW1156887", ])))
+
+
+
+nrow(dmv3_fh$gt)
+ncol(dmv3_fh$gt)
+
+
+
+
+
+for(i in row.names(dmv3_fh$gt)) {
+ print(length(which(is.na(dmv3_fh$gt[i, ]))))
+print(i)  
+}
+
+
+```
+
+
+```{r}
+dmat_fh <- dist(dmv3_fh$gt)
+library(phangorn)
+
+t <- upgma(dmat_fh)
+
+pdf("tree.pdf", width=8, height=10)
+plot(t)
+dev.off()
+
+
+#put into ggplot
+
+```
+```{r}
+library(ggtree)
+
+browseVignettes("ggtree")
+
+
+
+
+
+species <- dmv3_fh$meta$analyses$species
+
+tree <- t
+tree$tip.label <- species
+
+ggtree(tree)+ 
+  geom_label2(label=tree$tip.label)
+  
+  
+  geom_tiplab()
+
+```
+
+
+```{r}
+svdq_T  <- dart2svdquartets(dmv3_fh, basedir_fh, species_fh, dataset_fh, add_pop=TRUE, pop=dmv3_fh$meta$analyses$pop)
+
+
+
+
+#look into installing and running
+
+```

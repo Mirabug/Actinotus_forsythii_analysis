@@ -1,0 +1,631 @@
+---
+title: "heli_analysis"
+output: html_document
+date: "2022-11-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+library(RRtools)
+library(devtools)
+library(LEA)
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(diveRsity)
+library(tidyverse)
+library(dplyr)
+library(tibble)
+library(RColorBrewer)
+library(reshape2)
+library(popkin)
+library(SNPRelate)
+library(ggmap)
+source("funx.R")
+
+
+```
+
+
+#you will need to run this first section for setup
+```{r}
+####################
+### SETUP
+
+
+species_h   <- "ActiHeli"
+dataset_h  <- "DAct19-4163"
+
+
+RandR_raw_h <- "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/raw/"
+basedir_h   <- "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/"
+
+
+####################
+### GENOTYPES
+### Read genotype data 
+d1_h        <- read_dart_onerow_csv(RandR_raw_h,species_h,dataset_h, seq2fa=FALSE, fnum=2)
+qc1_h       <- report_dart_qc_stats(d1_h, basedir_h, species_h, dataset_h, threshold_missing_loci = 0.8)
+
+
+### some initial quality filters
+d2_h        <- remove.poor.quality.snps(d1_h, min_repro=0.96, max_missing=0.1)
+qc2_h       <- report_dart_qc_stats(d2_h, basedir_h, species_h, dataset_h)
+
+d3_h        <- sample.one.snp.per.locus.random(d2_h, seed=12345) 
+qc3_h       <- report_dart_qc_stats(d3_h, basedir_h, species_h, dataset_h)
+
+
+### use meta data file to exclude some samples
+### that had lots of missing data
+
+v_h         <- "v0002_2"
+m1_h        <- read_meta_info(d1_h, basedir_h, species_h, dataset_h, version=v_h) 
+
+dm_h        <- merge_gt_meta_data(d1_h, m1_h)
+
+dmv_h       <- arrange_data_by_analysis_field(dm_h, "RR3", basedir_h, species_h, dataset_h)
+
+dmv2_h        <- remove.poor.quality.snps(dmv_h, min_repro=0.96, max_missing=0.1)
+qmv2_h       <- report_dart_qc_stats(dmv2_h, basedir_h, species_h, dataset_h)
+
+dmv3_h        <- sample.one.snp.per.locus.random(dmv2_h, seed=12345) 
+qmv3_h       <- report_dart_qc_stats(dmv3_h, basedir_h, species_h, dataset_h)
+```
+
+
+```{r}
+#sorted below
+ActiHeli_meta <- read_csv("ActiHeli/meta/ActiHeli_DAct19-4163_meta.v0002_2.csv")
+
+```
+
+
+```{r}
+# run a pca
+gl_file_h    <- dart2gl(dmv3_h, basedir_h, species_h, dataset_h, return_as_file=TRUE)
+run_PCA(gl_file_h, basedir_h, species_h, dataset_h, dmv3_h$treatment)
+```
+
+```{r}
+#load each time change in species
+load("C:/Users/jorda/OneDrive/Documents/Honours Code/testing/ActiHeli/popgen/raw_FRR3_SNPFilt_1SNPperClone/genlight/ActiHeli_DAct19-4163_PCA.rda")
+
+pc1_pc2_h <- cbind(gl_pca$scores[,1], gl_pca$scores[,2])
+
+
+write.csv(pc1_pc2_h, "/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiHeli/popgen/raw_FRR3_SNPFilt_1SNPperClone/genlight\\pc1_pc2.csv", row.name = TRUE)
+
+
+pc1_pc2_h <- read_csv("/Users/jorda/OneDrive/Documents/Honours Code/GitHub/Actinotus_git/beta code/ActiHeli/popgen/raw_FRR3_SNPFilt_1SNPperClone/genlight/pc1_pc2.csv")
+ActiHeli_meta <- read_csv("ActiHeli/meta/ActiHeli_DAct19-4163_meta.v0002_1.csv")
+
+names(pc1_pc2_h)[1]<-paste("sample")
+names(pc1_pc2_h)[2]<-paste("PC1")
+names(pc1_pc2_h)[3]<-paste("PC2") 
+
+
+PCA_data_h <- merge(pc1_pc2_h, ActiHeli_meta, by= "sample")
+
+
+crop <- dmv4_h$sample_names
+PCA_htof <- subset(PCA_data_h, sample%in%crop, select=sample:group)
+
+
+gl_pca$eig[2]/sum(gl_pca$eig)
+
+
+
+pca_heli <- ggplot() +
+  geom_point(PCA_data_h, mapping=aes(x=PC1, y=PC2, colour=(group)), size=1.8, shape=1, stroke=0.7) +
+  scale_color_manual(values = c("North West" = "#FDB863", "North Coast" = "#542788", "Sydney Coast" = "#B2ABD2", "Central West" = "#B35806", "South Coast" = "#525252")) +
+  geom_point(PCA_htof, mapping=aes(x=PC1, y=PC2, colour=(group)), shape=16, size=1.8) +
+  theme_bw() + theme(legend.title=element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  geom_hline(yintercept=0, color="grey") + geom_vline(xintercept = 0, color="grey") +
+  labs(x="PC1 (13%)", y="PC2 (9.9%)"
+       )
+pca_heli
+
+#+ geom_text_repel(label = PCA_data_h$S, size=1.5, max.overlaps=50) 
+
+#ggsave("PCA_Heli.png",width = 7, height = 5, dpi=300)
+
+#ggsave("PCA_htof.jpg", width = 6.5, height = 5)
+
+ggarrange(pca_fors, pca_heli, 
+          labels = c("A", "B"),
+          ncol = 1, nrow = 2)
+
+ggsave("PCA_both.png",width = 6, height = 7, dpi=300)
+
+```
+
+
+```{r}
+# run site pwFst and populatin Fst
+pwFst_h <- population.pw.Fst(dmv3_h, dmv3_h$meta$analyses$S ,basedir_h,species_h, dataset_h, maf_val = 0.1, miss_val = 0.1)
+
+ppwfst_h <- as.data.frame(pwFst_h$Fst)
+ppwfst_h <- rownames_to_column(ppwfst_h, "S")
+ppwfst_long_h <- pivot_longer(ppwfst_h, -c(S), names_to = "sites", values_to = "counts")
+ppwfst_long_h$S <- factor(ppwfst_long_h$S, levels = ppwfst_h$S)
+ppwfst_long_h$sites <- factor(ppwfst_long_h$sites, levels = ppwfst_h$S)
+ppwfst_long_h <- ppwfst_long_h %>% mutate_if(is.numeric, round, digits=2)
+
+ggplot(ppwfst_long_h, aes(x=sites, y=S, fill=counts)) + 
+  geom_tile() +
+  scale_fill_gradient(low="red", high="white") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_text(aes(sites, S, label = counts), color = "black", size = 3)
+
+#ggsave("sites_fst.png", width = 8, height = 7, dpi = 300)
+
+dart_data_h <- dmv3_h
+meta_h <- dmv3_h$meta
+   p_h    <- dmv3_h$meta$analyses$S
+   pop_info_h <- get.population.info(meta_h, p_h, method="average")
+   gds_file_h <- dart2gds(dart_data_h, basedir_h, species_h, dataset_h)
+   gds_h      <- snpgdsOpen(gds_file_h)
+
+ fst_h      <- snpgdsFst(gds_h, population=as.factor(p_h), method="W&H02", sample.id=dart_data_h$sample_names, maf=0.1, missing.rate=0.1, with.id=TRUE)
+ #0.57
+```
+
+
+
+```{r}
+# run sNMF
+treatment_h <- "raw_FRR3_SNPFilt_1SNPperClone"
+lea_file_h <- dart2lea(dmv3_h, basedir_h, species_h, dataset_h)
+run_SNMF(lea_file_h, basedir_h, species_h, dataset_h, treatment_h)
+```
+
+```{r}
+ActiHeli_meta <- read_csv("ActiHeli/meta/ActiHeli_DAct19-4163_meta.v0002_2.csv")
+project <-load.snmfProject("ActiHeli/popgen/raw_FRR3_SNPFilt_1SNPperClone/lea/ActiHeli_DAct19-4163.snmfProject")
+
+png(filename = "K_heli.png", width = 450, height = 400, units = "px")
+plot(project)
+dev.off()
+
+
+#figure out how to find lowest value of cross entropy for the run
+ce = cross.entropy(project, K = 5)
+
+K5 <- Q(project, K=5, run=9)
+
+snmf_df(K5, dmv3_h, ActiHeli_meta, "PuOr")
+#ggsave("snmpheli.jpg", width = 10, height = 10)
+```
+
+
+
+```{r}
+
+#trying to makes grouped snmf plot
+
+snmf_df_ <- function(K, dmv, meta, pal){
+  rownames(K) <- rownames(dmv$gt)
+  K_df <- as.data.frame(K)
+  K_df <- tibble::rownames_to_column(K_df, "sample")
+  meta_S <- dplyr::select(meta, S, sample, lat, group)
+  K_df <- merge(K_df, meta_S, by= "sample")
+  K_df <- K_df %>% group_by(group) %>%
+    arrange(lat, .by_group =TRUE)
+  k_df <- select(K_df, S, V1, V2, V3, V4, V5 )
+
+  long <- melt(K_df, id.vars = c("S"))
+
+  addmix <- ggplot(long, aes(x = S, y= value, fill = variable)) + 
+    geom_bar(stat="identity") +
+    scale_x_discrete(labels = K_df$S, guide = guide_axis(n.dodge = 2)) +
+    theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5), panel.background = element_blank()) +
+    scale_fill_brewer(palette = pal) + 
+    coord_flip() +
+    theme(legend.position='none'
+    )
+  return(addmix)
+}
+
+
+snmf_df_(K5, dmv3_h, ActiHeli_meta, "PuOr")
+
+```
+
+
+
+
+
+
+
+```{r}
+K5_sum <- sum_K(K5, dmv3_h, ActiHeli_meta)
+  
+#change number of V depending on K
+pop_K <- dplyr::select(K5_sum, V1, V2, V3, V4, V5, S)
+meta_sum <- dplyr::select(K5_sum, lat, long, S)
+
+```
+
+```{r}
+pk_long <- melt(pop_K, id.vars = "S")
+
+cols = c("#E66101", "#FDB863", "#F7F7F7", "#B2ABD2", "#5E3C99")
+
+# Apply function to all sites using for loop
+pies = list()
+for (i in pk_long$S){
+  pies[[i]] = pie_charts(admix_df = pk_long, site = i, cols = cols) 
+}
+```
+
+
+```{r} 
+basemap <- get_stamenmap(bbox = c(left = 149, bottom = -37.5, 
+                                  right = 154, top = -28), zoom = 8, maptype = 'terrain-background')
+#get xy from ggmap object
+xs<-seq(from=as.numeric(attr(basemap,"bb")[2]),
+    to=as.numeric(attr(basemap,"bb")[4]),length.out=ncol(basemap))
+ys<-seq(from=as.numeric(attr(basemap,"bb")[1]),
+        to=as.numeric(attr(basemap,"bb")[3]),length.out=nrow(basemap))
+df<-data.frame(expand.grid(x=xs,y=ys))
+df<-arrange(df,desc(y),x)
+#get colors
+df$val=as.vector(basemap)
+#set up colors for ggplot system
+df$val<-factor(df$val,levels=unique(df$val))
+basemap = ggplot() +
+  geom_raster(data=df,aes(x=x,y=y,fill=val), alpha = 0.7)+
+  scale_fill_manual(values=levels(df$val)) +
+  theme_bw() +
+  coord_quickmap() +
+  scale_x_continuous("", expand = c(0, 0)) +
+  scale_y_continuous("", expand = c(0, 0)) +
+  theme(legend.position="none") +
+  geom_rect(aes(xmin = 149.5, ymin = -35.5, xmax = 151, ymax = -33), 
+            fill = "white", alpha = 0.06, color = "black"  
+)
+basemap
+
+```
+
+
+```{r}
+# Define pie chart sizes
+radius = 0.15
+
+coord.list = list()
+for (i in pk_long$S){
+  coord.list[[i]] = c(subset(meta_sum, S == i)$long, subset(meta_sum, S == i)$lat)
+}
+coord.list
+
+
+# Convert ggplot pie charts to annotation_custom layers
+pies.ac = list()
+for (i in 1:length(meta_sum$S)){
+  pies.ac[[i]] = annotation_custom(grob = ggplotGrob(pies[[i]]),
+                                   xmin = coord.list[[i]][[1]] - radius,
+                                   xmax = coord.list[[i]][[1]] + radius,
+                                   ymin = coord.list[[i]][[2]] - radius,
+                                   ymax = coord.list[[i]][[2]] + radius)
+}
+
+
+# Add layers to basemap
+pie.map = basemap + pies.ac
+pie.map
+#ggsave("heli_pie_.png", width = 8, height = 10, dpi = 300)
+
+```
+
+
+#Crop helianthi to forsythii range. 
+
+```{r}
+meta_crop <- cbind(dmv3_h$sample_names, dmv3_h$meta$lat, dmv3_h$meta$long)
+meta_crop <- as.data.frame(meta_crop)
+names(meta_crop)[1] <- 'sample'
+names(meta_crop)[2] <- 'lat'
+names(meta_crop)[3] <- 'long'
+
+
+h_crop <- meta_crop[meta_crop$lat>=-33 & meta_crop$lat<= -35.5 & meta_crop$long >=149.5 & meta_crop$long<=151, ]
+
+
+dmv4_h = dmv3_h
+dmv4_h$gt=dmv3_h$gt[as.vector(h_crop$sample), ]
+
+
+
+#sort sample names at top level
+dmv4_h$sample_names<-as.vector(h_crop$sample)
+dma_h<-data.frame(dmv4_h$meta$analyses)
+
+# move to modern data system
+all_h<-data.frame(dma_h,lat=dmv4_h$meta$lat,long=dmv4_h$meta$long,sample_names=dmv4_h$meta$sample_names,site=dmv4_h$meta$site)
+
+#sort based on your vector from above using modern tools
+all_h %>%
+  slice(match(as.vector(h_crop$sample), sample_names))->all_sorted_h
+
+all(all_sorted_h$sample_names == as.vector(h_crop$sample)) # check sorting
+
+#back to old system, this could be rationalized but I don't want to break anything downstream
+
+dmv4_h$meta<-as.list(all_sorted_h[,5:8])
+
+dmv4_h$meta$analyses <-as.list(as.list(all_sorted_h[,1:4]))
+
+dmv4_h$treatment<- "raw_FRR3_SNPFilt_1SNPperClone_htof"
+
+```
+
+
+
+```{r}
+#popkin fst
+pk_hf <- popkin(X=dmv4_h$gt, subpops=dmv4_h$meta$analyses$S, loci_on_cols = TRUE)
+
+fst_pop_hf <- fst(pk_hf)
+#0.67
+```
+
+
+```{r}
+#snprelate fst
+
+meta_4h <- dmv4_h$meta
+   p_4h    <- dmv4_h$meta$analyses$S
+   pop_info_4h <- get.population.info(meta_4h, p_4h, method="average")
+   gds_file_4h <- dart2gds(dmv4_h, basedir_h, species_h, dataset_h)
+   gds_4h      <- snpgdsOpen(gds_file_4h)
+
+ fst_4h      <- snpgdsFst(gds_4h, population=as.factor(p_4h), method="W&H02", sample.id=dmv4_h$sample_names, maf=0.1, missing.rate=0.1, with.id=TRUE)
+ # 0.44
+ 
+```
+
+```{r}
+treatment = "raw_FRR3_SNPFilt_1SNPperClone_htof"
+
+# run sNMF
+lea_file_h <- dart2lea(dmv4_h, basedir_h, species_h, dataset_h)
+run_SNMF(lea_file_h, basedir_h, species_h, dataset_h, treatment)
+
+```
+
+```{r}
+project_h = load.snmfProject("ActiHeli/popgen/raw_FRR3_SNPFilt_1SNPperClone_htof/lea/ActiHeli_DAct19-4163.snmfProject")
+
+png(filename = "K_heli_fors.png", width = 450, height = 400, units = "px")
+plot(project_h)
+dev.off()
+
+
+#figure out how to find lowest value of cross entropy for the run
+ce = cross.entropy(project_h, K = 2)
+K2_h <- Q(project_h, K=2, run=1)
+
+snmf_df(K2_h, dmv4_h, ActiHeli_meta, "PuOr")
+
+K2_sum <- sum_K(K2_h, dmv4_h, ActiHeli_meta)
+  
+#change number of V depending on K
+pop_K <- dplyr::select(K2_sum, V1, V2, S)
+meta_sum <- dplyr::select(K2_sum, lat, long, S)
+
+```
+
+
+```{r}
+f_av_ <- subset(f_av, lat <= "-36")
+
+
+
+basemap <- get_stamenmap(bbox = c(left = 149.5, bottom = -35.5, 
+                                  right = 151, top = -33), zoom = 10, maptype = 'terrain-background')
+#get xy from ggmap object
+xs<-seq(from=as.numeric(attr(basemap,"bb")[2]),
+    to=as.numeric(attr(basemap,"bb")[4]),length.out=ncol(basemap))
+ys<-seq(from=as.numeric(attr(basemap,"bb")[1]),
+        to=as.numeric(attr(basemap,"bb")[3]),length.out=nrow(basemap))
+df<-data.frame(expand.grid(x=xs,y=ys))
+df<-arrange(df,desc(y),x)
+#get colors
+df$val=as.vector(basemap)
+#set up colors for ggplot system
+df$val<-factor(df$val,levels=unique(df$val))
+
+basemap = ggplot() +
+  geom_raster(data=df,aes(x=x,y=y,fill=val), alpha = 0.7)+
+  scale_fill_manual(values=levels(df$val)) +
+  theme_bw() +
+  coord_quickmap() +
+  scale_x_continuous("", expand = c(0, 0)) +
+  scale_y_continuous("", expand = c(0, 0)) +
+   theme(legend.position="none") +
+  geom_point(aes(x = long, y = lat, shape = Species), data = f_av_, color = "black", size = 2, shape=17
+  )
+basemap
+
+
+pk_long <- melt(pop_K, id.vars = "S")
+cols = c("#F7F7F7", "#E66101")
+
+
+# Apply function to all sites using for loop
+pies = list()
+for (i in pk_long$S){
+  pies[[i]] = pie_charts(admix_df = pk_long, site = i, cols = cols) 
+}
+
+# Define pie chart sizes
+radius = 0.07
+
+coord.list = list()
+for (i in pk_long$S){
+  coord.list[[i]] = c(subset(meta_sum, S == i)$long, subset(meta_sum, S == i)$lat)
+}
+coord.list
+
+
+# Convert ggplot pie charts to annotation_custom layers
+pies.ac = list()
+for (i in 1:length(meta_sum$S)){
+  pies.ac[[i]] = annotation_custom(grob = ggplotGrob(pies[[i]]),
+                                   xmin = coord.list[[i]][[1]] - radius,
+                                   xmax = coord.list[[i]][[1]] + radius,
+                                   ymin = coord.list[[i]][[2]] - radius,
+                                   ymax = coord.list[[i]][[2]] + radius)
+}
+
+
+# Add layers to basemap
+pie.map = basemap + pies.ac
+pie.map
+ggsave("heli_pie_SMALL_.png", width = 8, height = 10, dpi = 300)
+```
+
+
+```{r}
+
+#kinship
+pk_h <- popkin(X=dmv3_h$gt, subpops=dmv3_h$meta$analyses$RR3, loci_on_cols = TRUE)
+
+pk_fh <- popkin(X=dmv4_h$gt, subpops=dmv4_h$meta$analyses$S, loci_on_cols = TRUE)
+
+fst_pop_h <- fst(pk_h)
+#0.7579
+
+fst_pop_fh <- fst(pk_fh)
+#0.671
+
+library(geosphere)
+
+pts_h <- cbind(dmv3_h$meta$long, dmv3_h$meta$lat)
+pts_fh <- cbind(dmv4_h$meta$long, dmv4_h$meta$lat)
+
+res_h = distm(pts_h)
+rownames(res_h) <- rownames(dmv3_h$gt)
+colnames(res_h) <- rownames(dmv3_h$gt)
+
+res_fh = distm(pts_fh)
+rownames(res_fh) <- rownames(dmv4_h$gt)
+colnames(res_fh) <- rownames(dmv4_h$gt)
+
+
+pk_h_log <-log10(pk_h + 1)
+res_km_h <- sweep(x = res_h, MARGIN = 1, STATS = 1000, FUN = "/")
+
+pk_fh_log <-log10(pk_fh + 1)
+res_km_fh <- sweep(x = res_fh, MARGIN = 1, STATS = 1000, FUN = "/")
+
+ggplot() +
+   #geom_point(aes(x=res_km_h, y=pk_h_log), color = "#B2ABD2", alpha=0.5, size=0.8) +
+   geom_point(aes(x=res_km_fh, y=pk_fh_log, color = "#FDB863"), alpha=0.1, size=0.9)+
+  theme_bw() +
+ theme(legend.position="bottom",
+  legend.key=element_blank(), legend.text = element_text(face = "italic"),
+  legend.title=element_blank()) +
+   geom_point(aes(x=res_km, y=pk_f4_log, color = "#081d58"), alpha=0.1, size=0.5) +
+  labs(y = "Kinship value (log)", x = "Distance between individuals (km)") +
+  scale_color_manual(values = c("#081d58", "#FDB863"), labels =c("A. forsythii", "A. helianthi*")) +
+  guides(colour = guide_legend(override.aes = list(alpha = 1, size=4)))
+
+
+ggsave("dist_kin_hf.png", width = 3, heigh = 5.5, dpi=300)
+```
+
+
+```{r}
+gp_fil_h <- dart2genepop(dmv3_h,basedir_h,species_h,dataset_h, pop=dmv3_h$meta$analyses$S,maf_val=0.1)
+gp_out_h <- run_diveRsity(gp_fil_h)
+
+#run across hcropf
+gp_fil_h <- dart2genepop(dmv_h,basedir_h,species_h,dataset_h, pop=dmv4_h$meta$analyses$S,maf_val=0.1)
+gp_out_h <- run_diveRsity(gp_fil_h)
+```
+
+
+```{r}
+iIBD      <- individual.pw.IBD(dmv3_h, basedir_h, species_h, dataset_h)
+kin       <-  iIBD$kinship
+
+rownames(kin) <- rownames(dmv3_h$gt)
+colnames(kin) <- rownames(dmv3_h$gt)
+
+image(kin)
+
+plot(kin, pk_f4)
+
+
+```
+```{r}
+kin_df <- as.data.frame(kin)
+kin_df <- rownames_to_column(kin_df, "sample")
+
+met <- cbind(dmv3_h$sample_names, dmv3_h$meta$analyses$S)
+met <-as.data.frame(met)
+names(met)[1] <- 'sample'
+names(met)[2] <- 'S'
+
+kin_all <- merge(kin_df, met, by ="sample")
+
+kin_av <-kin_all %>% group_by(S) %>%
+    summarise_all(mean)
+kin_av <- dplyr::select(kin_av, -c(sample))
+
+kin_av_t <-t(kin_av)
+
+colnames(kin_av_t) <- kin_av_t[1,]
+
+kin_av_t <- kin_av_t[-1, ]
+kin_av_t <- as.data.frame(kin_av_t)
+
+ktav <- rownames_to_column(kin_av_t, "sample")
+ktav <- merge(ktav, met, by ="sample")
+
+kt <- ktav[,-1]
+kt <- as.data.frame(kt)
+
+
+ktb<-lapply(kt, as.numeric)
+
+
+
+
+names(ktb)[38] <- 'S'
+
+kav <- kt %>% group_by(met$S)%>%
+    summarise_all(mean)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+unique(kin_av[31,])
+
+unique(kin_av)
+
+```
+
+
